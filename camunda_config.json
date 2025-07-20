@@ -1,0 +1,63 @@
+{
+  "camunda": {
+    "url": "http://localhost:8080",
+    "engine_rest": "http://localhost:8080/engine-rest",
+    "cockpit": "http://localhost:8080/cockpit",
+    "tasklist": "http://localhost:8080/tasklist"
+  },
+  "ocr_service": {
+    "url": "http://localhost:5000",
+    "health_endpoint": "/health",
+    "ocr_endpoint": "/ocr",
+    "batch_endpoint": "/ocr/batch"
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5435,
+    "database": "ocr_db",
+    "user": "ocr_user",
+    "password": "ocr_password"
+  },
+  "process": {
+    "key": "Process_Reembolso",
+    "name": "Proceso de Reembolso",
+    "version": "1.0.0",
+    "assignee": "david"
+  },
+  "variables": {
+    "ocr_output": {
+      "proveedor": "String",
+      "monto": "Double",
+      "fecha_factura": "String",
+      "numero_factura": "String",
+      "ruc_proveedor": "String",
+      "ocr_status": "String",
+      "ocr_timestamp": "String"
+    },
+    "validation": {
+      "datos_validos": "Boolean",
+      "error_mensaje": "String",
+      "validacion_timestamp": "String"
+    },
+    "approval": {
+      "aprobado": "Boolean",
+      "aprobador": "String",
+      "fecha_aprobacion": "String",
+      "comentarios": "String"
+    }
+  },
+  "endpoints": {
+    "deploy": "/engine-rest/deployment/create",
+    "start_process": "/engine-rest/process-definition/key/{process_key}/start",
+    "get_tasks": "/engine-rest/task",
+    "complete_task": "/engine-rest/task/{task_id}/complete",
+    "get_process_instances": "/engine-rest/process-instance",
+    "get_variables": "/engine-rest/process-instance/{instance_id}/variables"
+  },
+  "external_tasks": {
+    "ocr_topic": "ocr-processing",
+    "validation_topic": "data-validation",
+    "worker_id": "ocr-worker",
+    "lock_duration": 60000
+  }
+} 
