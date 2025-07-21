@@ -44,6 +44,8 @@ logs/
 test_*.png
 test_*.jpg
 test_*.pdf
+factur2.pdf
+ffactura.png
 test_*.txt
 test_*.jpeg
 test_*.tiff

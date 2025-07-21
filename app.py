@@ -14,6 +14,7 @@ import logging
 import os
 from datetime import datetime
 import json
+from pdf2image import convert_from_bytes
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +40,10 @@ class InvoiceDataExtractor:
             custom_config = r'--oem 3 --psm 6'
             self.extracted_text = pytesseract.image_to_string(image, config=custom_config, lang='spa+eng')
             logger.info("Texto extraído exitosamente")
+            logger.debug(f"Texto OCR extraído:\n{self.extracted_text}")  # Log detallado
+            if not self.extracted_text.strip():
+                logger.error("El OCR no extrajo ningún texto. Verifica la calidad de la imagen o la instalación de Tesseract.")
+                return False
             return True
         except Exception as e:
             logger.error(f"Error al extraer texto: {str(e)}")
@@ -46,173 +51,51 @@ class InvoiceDataExtractor:
     
     def extract_provider(self):
         """Extrae el nombre del proveedor"""
-        # Buscar patrones comunes de proveedores
         lines = self.extracted_text.split('\n')
-        for line in lines[:10]:  # Buscar en las primeras líneas
-            line = line.strip()
-            if len(line) > 3 and not re.match(r'^\d', line):
-                # Excluir líneas que empiecen con números
-                return line
+        for line in lines:
+            if "razón social" in line.lower():
+                return line.split(":", 1)[-1].strip()
+            if "nombre comercial" in line.lower():
+                return line.split(":", 1)[-1].strip()
         return "Proveedor no identificado"
     
     def extract_amount(self):
         """Extrae el monto total de la factura"""
-        # Buscar patrones específicos de montos con mejor prioridad
-        amount_patterns = [
-            # Patrones más específicos primero
-            r'TOTAL[:\s]*S/\.?\s*([\d,]+\.?\d*)',
-            r'TOTAL[:\s]*\$?\s*([\d,]+\.?\d*)',
-            r'MONTO[:\s]*S/\.?\s*([\d,]+\.?\d*)',
-            r'MONTO[:\s]*\$?\s*([\d,]+\.?\d*)',
-            r'IMPORTE[:\s]*S/\.?\s*([\d,]+\.?\d*)',
-            r'IMPORTE[:\s]*\$?\s*([\d,]+\.?\d*)',
-            r'SUBTOTAL[:\s]*S/\.?\s*([\d,]+\.?\d*)',
-            r'SUBTOTAL[:\s]*\$?\s*([\d,]+\.?\d*)',
-            r'PAGAR[:\s]*S/\.?\s*([\d,]+\.?\d*)',
-            r'PAGAR[:\s]*\$?\s*([\d,]+\.?\d*)',
-            r'PAGO[:\s]*S/\.?\s*([\d,]+\.?\d*)',
-            r'PAGO[:\s]*\$?\s*([\d,]+\.?\d*)',
-            # Patrones con decimales específicos
-            r'S/\.?\s*([\d,]+\.\d{2})',
-            r'\$\s*([\d,]+\.\d{2})',
-            r'USD\s*([\d,]+\.\d{2})',
-        ]
-        
-        for pattern in amount_patterns:
-            match = re.search(pattern, self.extracted_text, re.IGNORECASE)
-            if match:
-                amount = match.group(1).replace(',', '')
-                try:
-                    amount_float = float(amount)
-                    # Validar que sea un monto razonable y no un año
-                    if 1 <= amount_float <= 100000 and amount_float != 2024 and amount_float != 2023 and amount_float != 2025:
-                        return amount_float
-                except ValueError:
-                    continue
-        
-        # Buscar números con formato de moneda (más específico)
-        currency_patterns = [
-            r'S/\.?\s*([\d,]+\.?\d*)',
-            r'\$\s*([\d,]+\.?\d*)',
-            r'USD\s*([\d,]+\.?\d*)',
-        ]
-        
-        for pattern in currency_patterns:
-            matches = re.findall(pattern, self.extracted_text, re.IGNORECASE)
-            for match in matches:
-                amount = match.replace(',', '')
-                try:
-                    amount_float = float(amount)
-                    # Validar que sea un monto razonable, no un número de factura, y no un año
-                    if (10 <= amount_float <= 100000 and 
-                        amount_float != int(amount_float) and 
-                        amount_float not in [2024, 2023, 2025, 2026]):
-                        return amount_float
-                except ValueError:
-                    continue
-        
-        # Buscar números que parezcan montos (excluyendo números de factura y años)
-        # Buscar líneas que contengan palabras relacionadas con dinero
-        money_keywords = ['total', 'monto', 'importe', 'pagar', 'pago', 'subtotal', 'suma']
-        lines = self.extracted_text.split('\n')
-        
-        for line in lines:
-            line_lower = line.lower()
-            # Verificar si la línea contiene palabras relacionadas con dinero
-            if any(keyword in line_lower for keyword in money_keywords):
-                # Buscar números en esa línea
-                numbers = re.findall(r'[\d,]+\.?\d*', line)
-                for num in numbers:
-                    num_clean = num.replace(',', '')
-                    try:
-                        amount = float(num_clean)
-                        # Excluir años y números de factura
-                        if (10 <= amount <= 100000 and 
-                            amount not in [2024, 2023, 2025, 2026] and
-                            (amount != int(amount) or amount < 10000)):
-                            return amount
-                    except ValueError:
-                        continue
-        
-        # Último recurso: buscar números grandes pero excluir números de factura y años
-        numbers = re.findall(r'[\d,]+\.?\d*', self.extracted_text)
-        valid_amounts = []
-        for num in numbers:
-            num_clean = num.replace(',', '')
+        # Buscar línea con VALOR TOTAL USD
+        match = re.search(r'VALOR TOTAL USD\s*([\d,.]+)', self.extracted_text, re.IGNORECASE)
+        if match:
             try:
-                amount = float(num_clean)
-                # Excluir números que parecen ser números de factura o años
-                if (10 <= amount <= 100000 and 
-                    amount not in [2024, 2023, 2025, 2026] and
-                    (amount != int(amount) or amount < 10000)):
-                    valid_amounts.append(amount)
+                return float(match.group(1).replace(',', ''))
             except ValueError:
-                continue
-        
-        # Retornar el monto más alto que no sea un número de factura o año
-        if valid_amounts:
-            return max(valid_amounts)
-        
+                pass
+        # Fallback anterior
         return 0.0
     
     def extract_date(self):
         """Extrae la fecha de la factura"""
-        # Buscar patrones de fecha
-        date_patterns = [
-            r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})',
-            r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})',
-            r'FECHA[:\s]*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})',
-        ]
-        
-        for pattern in date_patterns:
-            match = re.search(pattern, self.extracted_text)
-            if match:
-                try:
-                    if len(match.group(3)) == 2:
-                        year = '20' + match.group(3)
-                    else:
-                        year = match.group(3)
-                    
-                    month = match.group(2).zfill(2)
-                    day = match.group(1).zfill(2)
-                    
-                    return f"{year}-{month}-{day}"
-                except:
-                    continue
-        
+        # Buscar FECHA DE EMISIÓN
+        match = re.search(r'FECHA DE EMISI[ÓO]N[:\s]*([\d/-]{8,10})', self.extracted_text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        # Fallback anterior
         return datetime.now().strftime("%Y-%m-%d")
     
     def extract_invoice_number(self):
         """Extrae el número de factura"""
-        # Buscar patrones de números de factura
-        invoice_patterns = [
-            r'FACTURA[:\s]*N°?\s*([A-Z0-9-]+)',
-            r'FACTURA[:\s]*#\s*([A-Z0-9-]+)',
-            r'BOLETA[:\s]*N°?\s*([A-Z0-9-]+)',
-            r'COMPROBANTE[:\s]*N°?\s*([A-Z0-9-]+)',
-            r'N°?\s*([A-Z0-9-]{6,})',
-        ]
-        
-        for pattern in invoice_patterns:
-            match = re.search(pattern, self.extracted_text, re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-        
+        # Buscar patrones como N°: 001-008-004080008
+        match = re.search(r'N[°º]?:?\s*([\d-]{8,})', self.extracted_text)
+        if match:
+            return match.group(1)
+        # Fallback anterior
         return "N/A"
     
     def extract_ruc(self):
         """Extrae el RUC del proveedor"""
-        # Buscar RUC (11 dígitos en Perú)
-        ruc_pattern = r'RUC[:\s]*(\d{11})'
-        match = re.search(ruc_pattern, self.extracted_text, re.IGNORECASE)
-        if match:
-            return match.group(1)
-        
-        # Buscar cualquier secuencia de 11 dígitos
-        ruc_candidates = re.findall(r'\d{11}', self.extracted_text)
+        # Buscar exactamente 13 dígitos
+        ruc_candidates = re.findall(r'\b\d{13}\b', self.extracted_text)
         if ruc_candidates:
             return ruc_candidates[0]
-        
+        # Fallback anterior
         return "N/A"
 
 @app.route('/health', methods=['GET'])
@@ -235,6 +118,7 @@ def process_invoice():
     try:
         # Verificar que se envió un archivo
         if 'file' not in request.files:
+            logger.error("No se proporcionó archivo en la petición.")
             return jsonify({
                 "error": "No se proporcionó archivo",
                 "status": "error"
@@ -242,6 +126,7 @@ def process_invoice():
         
         file = request.files['file']
         if file.filename == '':
+            logger.error("No se seleccionó archivo.")
             return jsonify({
                 "error": "No se seleccionó archivo",
                 "status": "error"
@@ -250,6 +135,7 @@ def process_invoice():
         # Verificar tipo de archivo
         allowed_extensions = {'png', 'jpg', 'jpeg', 'pdf', 'tiff', 'bmp'}
         if not file.filename.lower().endswith(tuple('.' + ext for ext in allowed_extensions)):
+            logger.error(f"Tipo de archivo no soportado: {file.filename}")
             return jsonify({
                 "error": "Tipo de archivo no soportado",
                 "status": "error"
@@ -257,22 +143,43 @@ def process_invoice():
         
         logger.info(f"Procesando archivo: {file.filename}")
         
-        # Procesar imagen
-        try:
-            image = Image.open(file.stream)
-            # Convertir a RGB si es necesario
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-        except Exception as e:
-            logger.error(f"Error al abrir imagen: {str(e)}")
-            return jsonify({
-                "error": "Error al procesar imagen",
-                "status": "error"
-            }), 400
+        # Procesar imagen o PDF
+        image = None
+        if file.filename.lower().endswith('.pdf'):
+            try:
+                pdf_bytes = file.read()
+                images = convert_from_bytes(pdf_bytes)
+                if not images:
+                    logger.error("No se pudo convertir el PDF a imagen.")
+                    return jsonify({
+                        "error": "No se pudo convertir el PDF a imagen",
+                        "status": "error"
+                    }), 400
+                image = images[0]  # Procesar solo la primera página
+                logger.info("PDF convertido a imagen exitosamente.")
+            except Exception as e:
+                logger.error(f"Error al convertir PDF: {str(e)}")
+                return jsonify({
+                    "error": "Error al convertir PDF a imagen",
+                    "status": "error"
+                }), 400
+        else:
+            try:
+                image = Image.open(file.stream)
+                # Convertir a RGB si es necesario
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+            except Exception as e:
+                logger.error(f"Error al abrir imagen: {str(e)}")
+                return jsonify({
+                    "error": "Error al procesar imagen",
+                    "status": "error"
+                }), 400
         
         # Extraer datos
         extractor = InvoiceDataExtractor()
         if not extractor.extract_text_from_image(image):
+            logger.error("No se pudo extraer texto de la imagen. Revisa los logs para más detalles.")
             return jsonify({
                 "error": "No se pudo extraer texto de la imagen",
                 "status": "error"
@@ -292,6 +199,7 @@ def process_invoice():
         }
         
         logger.info(f"Datos extraídos exitosamente: {extracted_data['proveedor']} - {extracted_data['monto']}")
+        logger.debug(f"Datos extraídos completos: {json.dumps(extracted_data, ensure_ascii=False, indent=2)}")
         
         return jsonify(extracted_data)
         
