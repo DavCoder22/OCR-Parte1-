@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Establecer directorio de trabajo
